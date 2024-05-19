@@ -1,102 +1,175 @@
-#!/bin/bash
+#!/system/bin/sh
 
-# Configuration
-package_name="com.pubg.imobile"
-obb_file_path="/storage/emulated/0/BABAMODZ/DONT_DELETE/obb_file_name.txt"
-activation_obb_directory="/sdcard/Android/ACTIVATION"
-modded_obb_directory="/sdcard/Android/MOD"
-main_obb_directory="/storage/emulated/0/Android/obb/com.pubg.imobile"
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'  # No Color
 
-# Function to handle errors
-handle_error() {
-    echo "Error: $1" >&2
-    exit 1
+# File to store toggle states
+TOGGLE_FILE="/sdcard/toggle_state.txt"
+
+# Function to initialize toggle states
+init_toggle_states() {
+    if [ ! -f "$TOGGLE_FILE" ]; then
+        touch "$TOGGLE_FILE"
+        echo "ISLAND_ON=false" >> "$TOGGLE_FILE"
+        echo "PROGRAM_B_ON=false" >> "$TOGGLE_FILE"
+    fi
+    source "$TOGGLE_FILE"
 }
 
-# Function to retrieve version information
-retrieve_version_info() {
-    version_code=$(dumpsys package "$package_name" | grep versionCode | sed -E 's/.*versionCode=([0-9]+).*/\1/' | head -1)
-    version_name=$(dumpsys package "$package_name" | grep versionName | sed -E 's/.*versionName=([0-9.]+).*/\1/' | head -1)
-
-    if [ -z "$version_code" ] || [ -z "$version_name" ]; then
-        handle_error "Failed to retrieve version information for $package_name"
-    fi
+# Function to save toggle states
+save_toggle_states() {
+    echo "ISLAND_ON=$ISLAND_ON" > "$TOGGLE_FILE"
+    echo "PROGRAM_B_ON=$PROGRAM_B_ON" >> "$TOGGLE_FILE"
 }
 
-# Function to store the OBB file name
-store_obb_file_name() {
-    local obb_file_name="$1"
-    echo "$obb_file_name" > "$obb_file_path" || handle_error "Failed to store OBB file name"
-    echo "Stored OBB file name: $obb_file_name"
+# Function to display the submenu
+display_submenu() {
+    echo -e "${CYAN}Submenu:${NC}"
+    echo -e "${YELLOW}1. Suboption 1${NC}"
+    echo -e "${YELLOW}2. Suboption 2${NC}"
+    echo -e "${YELLOW}3. Suboption 3${NC}"
+    echo -e "${YELLOW}4. Suboption 4${NC}"
+    echo -e "${YELLOW}5. Suboption 5${NC}"
+    echo -e "${YELLOW}6. Suboption 6${NC}"
+    echo -e "${YELLOW}7. Suboption 7${NC}"
+    echo -e "${YELLOW}8. Suboption 8${NC}"
+    echo -e "${YELLOW}9. Suboption 9${NC}"
+    echo -e "${YELLOW}10. Suboption 10${NC}"
+    echo -e "${YELLOW}11. Back${NC}"
 }
 
-# Function to copy OBB file with progress indication
-copy_obb_file() {
-    local source_directory="$1"
-    local destination_directory="$2"
-    local obb_file_name="$3"
+# Main script
+init_toggle_states
 
-    echo "Copying OBB file: $obb_file_name"
-    local total_size=$(stat -c %s "$source_directory/$obb_file_name")
-    cp "$source_directory/$obb_file_name" "$destination_directory/$obb_file_name" || handle_error "Failed to copy OBB file: $obb_file_name"
-    local copied_size=$(stat -c %s "$destination_directory/$obb_file_name")
-    local copied_mb=$(echo "scale=2; $copied_size / (1024 * 1024)" | bc)
-    local total_mb=$(echo "scale=2; $total_size / (1024 * 1024)" | bc)
-    echo "Copied: $copied_mb MB / $total_mb MB"
-}
-
-# Main function
-main() {
-    # Check if the OBB file name is already stored in the file
-    if [ -f "$obb_file_path" ]; then
-        local stored_obb_file_name=$(cat "$obb_file_path")
-        if [ -n "$stored_obb_file_name" ]; then
-          #  echo "OBB file name found: $stored_obb_file_name"
-            # Retrieve version information
-            retrieve_version_info
-            # Construct the expected OBB file name
-            local expected_obb_file_name="main.${version_code}.${package_name}.obb"
-            # Check if the stored OBB file name matches the expected one
-            if [ "$stored_obb_file_name" != "$expected_obb_file_name" ]; then
-                store_obb_file_name "$expected_obb_file_name"
-            fi
-        fi
-    fi
-
-    # Retrieve version information if not already retrieved
-    if [ -z "$version_code" ]; then
-        retrieve_version_info
-    fi
-
-    # Construct the expected OBB file name
-    local expected_obb_file_name="main.${version_code}.${package_name}.obb"
-
-    # Store the OBB file name if not already stored
-    if [ ! -f "$obb_file_path" ]; then
-        store_obb_file_name "$expected_obb_file_name"
-    fi
-
-    # Increment counter
-    local counter_file="/sdcard/BABAMODZ/DONT_DELETE/counter.txt"
-    local count=0
-    if [ -f "$counter_file" ]; then
-        count=$(($(<"$counter_file") + 1))
-    fi
-    echo "$count" >"$counter_file" || handle_error "Failed to write to counter file"
-
-    # Copy OBB file based on counter
-    local source_directory=""
-    if ((count % 2 == 1)); then
-        source_directory="$activation_obb_directory"
-        echo "Activation OBB Task"
+while true; do
+    # Display the main menu
+    echo -e "${BLUE}Select an option:${NC}"
+    if [ "$ISLAND_ON" = true ]; then
+        echo -e "${YELLOW}1. ISLAND BYPASS (Status: ${GREEN}ON${YELLOW})${NC}"
     else
-        source_directory="$modded_obb_directory"
-        echo "Modded OBB Task"
+        echo -e "${YELLOW}1. ISLAND BYPASS (Status: ${RED}OFF${YELLOW})${NC}"
     fi
-    copy_obb_file "$source_directory" "$main_obb_directory" "$expected_obb_file_name"
+    if [ "$PROGRAM_B_ON" = true ]; then
+        echo -e "${YELLOW}2. OBB MODIFICATION (STEPS: ${GREEN}1${YELLOW})${NC}"
+    else
+        echo -e "${YELLOW}2. OBB MODIFICATION (STEPS: ${RED}2${YELLOW})${NC}"
+    fi
+    echo -e "${YELLOW}3. CONFIGS APPLY${NC}"
+    echo -e "${YELLOW}4. LOGS CLEANER${NC}"
+    echo -e "${YELLOW}5. CREATE FOLDER 1TIME${NC}"
+    echo -e "${YELLOW}6. Exit${NC}"
 
-    echo "SUCCESSFULLY APPLIED.."
-}
+    echo -n -e "${CYAN}Enter your choice: ${NC}"
+    read choice
 
-# Execute main function
-main
+    case $choice in
+        1)
+            if [ "$ISLAND_ON" = true ]; then
+                ISLAND_ON=false
+                echo -e "${RED}ISLAND BYPASS OFF.${NC}"
+                sh /sdcard/BABAMODZ/SH_FILE/OFF.sh
+            else
+                ISLAND_ON=true
+                echo -e "${GREEN}ISLAND BYPASS ON.${NC}"
+                sh /sdcard/BABAMODZ/SH_FILE/ON.sh
+            fi
+            save_toggle_states
+            ;;
+        2)
+            if [ "$PROGRAM_B_ON" = true ]; then
+                PROGRAM_B_ON=false
+                echo -e "${RED} ACTIVATION.${NC}"
+                sh /sdcard/BABAMODZ/SH_FILE/MOD.sh
+            else
+                PROGRAM_B_ON=true
+                echo -e "${GREEN}MODDED OBB.${NC}"
+                sh /sdcard/BABAMODZ/SH_FILE/MOD.sh
+            fi
+            save_toggle_states
+            ;;
+        3)
+            echo -e "${GREEN}Applying Configuration...${NC}"
+
+            # Display the submenu after applying configuration
+            while true; do
+                display_submenu
+                echo -n -e "${CYAN}Enter your choice: ${NC}"
+                read subchoice
+
+                case $subchoice in
+                    1)
+                        echo "You selected Suboption 1"
+                        # Add your code for Suboption 1 here
+                        ;;
+                    2)
+                        echo "You selected Suboption 2"
+                        # Add your code for Suboption 2 here
+                        ;;
+                    3)
+                        echo "You selected Suboption 3"
+                        # Add your code for Suboption 3 here
+                        ;;
+                    4)
+                        echo "You selected Suboption 4"
+                        # Add your code for Suboption 4 here
+                        ;;
+                    5)
+                        echo "You selected Suboption 5"
+                        # Add your code for Suboption 5 here
+                        ;;
+                    6)
+                        echo "You selected Suboption 6"
+                        # Add your code for Suboption 6 here
+                        ;;
+                    7)
+                        echo "You selected Suboption 7"
+                        # Add your code for Suboption 7 here
+                        ;;
+                    8)
+                        echo "You selected Suboption 8"
+                        # Add your code for Suboption 8 here
+                        ;;
+                    9)
+                        echo "You selected Suboption 9"
+                        # Add your code for Suboption 9 here
+                        ;;
+                    10)
+                        echo "You selected Suboption 10"
+                        # Add your code for Suboption 10 here
+                        ;;
+                    11)
+                        break ;;
+                    *)
+                        echo -e "${RED}Invalid option. Please select a valid option.${NC}"
+                        ;;
+                esac
+            done
+            ;;
+        4)
+            echo -e "${GREEN}Cleaning Logs...${NC}"
+            sh /sdcard/BABAMODZ/SH_FILE/LOGS.sh
+            ;;
+        5)
+            echo -e "${GREEN}Creating Folder and Copying Files...${NC}"
+            ls /storage/emulated/0/Android/data/com.pubg.imobile/files/UE4Game/ShadowTrackerExtra/ShadowTrackerExtra/Saved/Paks/game_patch_3.1.0.185[0-9][0-9].pak | xargs -n 1 basename > /storage/emulated/0/BABAMODZ/file_names.txt
+            source_directory="/storage/emulated/0/BABAMODZ/"
+            destination_directory="/storage/emulated/0/BABAMODZ/FILEPAK/"
+            while IFS= read -r file_name; do
+                mkdir -p "$destination_directory/$file_name"
+            done < "$source_directory/file_names.txt"
+            Paks="/storage/emulated/0/Android/data/com.pubg.imobile/files/UE4Game/ShadowTrackerExtra/ShadowTrackerExtra/Saved/Paks/"
+            cd "$Paks" && sleep 2 && cp game_patch_3.1.0.185[0-9][0-9].pak /storage/emulated/0/BABAMODZ/OGPAK/ && echo -e "${GREEN}Successful ✅${NC}" || echo -e "${RED}Error: Copying files failed.${NC}"
+            ;;
+        6)
+            echo -e "${RED}Exiting...${NC}"; break
+            ;;
+        *)
+            echo -e "${RED}Invalid option. Please select a valid option.${NC}"
+            ;;
+    esac
+done
