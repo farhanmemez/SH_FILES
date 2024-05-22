@@ -1,175 +1,680 @@
-#!/system/bin/sh
+#include "MemTool.h"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'  # No Color
+#include <unistd.h>
+#include <fcntl.h>
+#include <fstream>
 
-# File to store toggle states
-TOGGLE_FILE="/sdcard/toggle_state.txt"
+#if defined(__arm__)
+#define process_readv_syscall 376
+#define process_writev_syscall 377
+#elif defined(__aarch64__)
+#define process_readv_syscall 270
+#define process_writev_syscall 271
+#elif defined(__i386__)
+#define process_readv_syscall 347
+#define process_writev_syscall 348
+#else
+#define process_readv_syscall 310
+#define process_writev_syscall 311
+#endif
 
-# Function to initialize toggle states
-init_toggle_states() {
-    if [ ! -f "$TOGGLE_FILE" ]; then
-        touch "$TOGGLE_FILE"
-        echo "ISLAND_ON=false" >> "$TOGGLE_FILE"
-        echo "PROGRAM_B_ON=false" >> "$TOGGLE_FILE"
-    fi
-    source "$TOGGLE_FILE"
+#define READ_TYPE 0
+
+struct sAddr {
+	long int addr;
+	long int taddr;
+};
+
+int ISize = sizeof(int);
+int LSize = sizeof(mlong);
+int FSize = sizeof(float);
+int DSize = sizeof(double);
+int BSize = sizeof(mbyte);
+int ULSize = sizeof(ulong);
+int GAME_PID = -1;
+
+size_t page_size = 0;
+
+std::list<sAddr> *DataList = new std::list<sAddr>;
+std::list<sAddr> *MapList = new std::list<sAddr>;
+
+int pr(void * buff, size_t len, long int addr, long int offset) {
+#if READ_TYPE == 0
+	struct iovec iov_ReadBuffer[1];
+    struct iovec iov_ReadOffset[1];
+    iov_ReadBuffer[0].iov_base = buff;
+    iov_ReadBuffer[0].iov_len = len;
+    iov_ReadOffset[0].iov_base = (void *)(addr + offset);
+    iov_ReadOffset[0].iov_len = len;
+	/*iovec iov_ReadBuffer {}, iov_ReadOffset {};
+	iov_ReadBuffer.iov_base = buff;
+	iov_ReadBuffer.iov_len = len;
+	iov_ReadOffset.iov_base = (void *)(addr + offset);
+	iov_ReadOffset.iov_len = len;*/
+	return (int) syscall(process_readv_syscall, GAME_PID, & iov_ReadBuffer, 1, & iov_ReadOffset, 1, 0);
+#else
+	if (memcpy(buff, (void *)(addr + offset), len) != nullptr)
+		return len;
+#endif
 }
 
-# Function to save toggle states
-save_toggle_states() {
-    echo "ISLAND_ON=$ISLAND_ON" > "$TOGGLE_FILE"
-    echo "PROGRAM_B_ON=$PROGRAM_B_ON" >> "$TOGGLE_FILE"
+int pw(void * buff, size_t len, long int addr, long int offset) {
+#if READ_TYPE == 0
+	struct iovec iov_WriteBuffer[1];
+    struct iovec iov_WriteOffset[1];
+    iov_WriteBuffer[0].iov_base = buff;
+    iov_WriteBuffer[0].iov_len = len;
+    iov_WriteOffset[0].iov_base = (void *)(addr + offset);
+    iov_WriteOffset[0].iov_len = len;
+	/*iovec iov_WriteBuffer {}, iov_WriteOffset {};
+	iov_WriteBuffer.iov_base = buff;
+	iov_WriteBuffer.iov_len = len;
+	iov_WriteOffset.iov_base = (void *)(addr + offset);
+	iov_WriteOffset.iov_len = len;*/
+	return (int) syscall(process_writev_syscall, GAME_PID, & iov_WriteBuffer, 1, & iov_WriteOffset, 1, 0);
+#else
+	if (memcpy((void *)(addr + offset), buff, len) != nullptr)
+		return len;
+#endif
+	return 0;
 }
 
-# Function to display the submenu
-display_submenu() {
-    echo -e "${CYAN}Submenu:${NC}"
-    echo -e "${YELLOW}1. Suboption 1${NC}"
-    echo -e "${YELLOW}2. Suboption 2${NC}"
-    echo -e "${YELLOW}3. Suboption 3${NC}"
-    echo -e "${YELLOW}4. Suboption 4${NC}"
-    echo -e "${YELLOW}5. Suboption 5${NC}"
-    echo -e "${YELLOW}6. Suboption 6${NC}"
-    echo -e "${YELLOW}7. Suboption 7${NC}"
-    echo -e "${YELLOW}8. Suboption 8${NC}"
-    echo -e "${YELLOW}9. Suboption 9${NC}"
-    echo -e "${YELLOW}10. Suboption 10${NC}"
-    echo -e "${YELLOW}11. Back${NC}"
+void MSearchFloat(float value) {
+	sAddr pmap {0, 0};
+	int c;
+	int buffSize = 0x1000 / FSize;
+	auto * buff = new float[buffSize];
+	std::list<sAddr>::iterator pmapsit;
+	for (pmapsit = MapList->begin(); pmapsit != MapList->end(); ++pmapsit) {
+		c = (int)(pmapsit->taddr - pmapsit->addr) / 0x1000;
+		for (int j = 0; j < c; j += 1) {
+			pr(buff, 0x1000, pmapsit->addr, j * 0x1000);
+			for (int i = 0; i < buffSize; i += 1) {
+				if (buff[i] == value) {
+					pmap.addr = pmapsit->addr + (j * 0x1000) + (i * FSize);
+					DataList->push_back(pmap);
+				}
+			}
+		}
+	}
+	delete[] buff;
 }
 
-# Main script
-init_toggle_states
 
-while true; do
-    # Display the main menu
-    echo -e "${BLUE}Select an option:${NC}"
-    if [ "$ISLAND_ON" = true ]; then
-        echo -e "${YELLOW}1. ISLAND BYPASS (Status: ${GREEN}ON${YELLOW})${NC}"
-    else
-        echo -e "${YELLOW}1. ISLAND BYPASS (Status: ${RED}OFF${YELLOW})${NC}"
-    fi
-    if [ "$PROGRAM_B_ON" = true ]; then
-        echo -e "${YELLOW}2. OBB MODIFICATION (STEPS: ${GREEN}1${YELLOW})${NC}"
-    else
-        echo -e "${YELLOW}2. OBB MODIFICATION (STEPS: ${RED}2${YELLOW})${NC}"
-    fi
-    echo -e "${YELLOW}3. CONFIGS APPLY${NC}"
-    echo -e "${YELLOW}4. LOGS CLEANER${NC}"
-    echo -e "${YELLOW}5. CREATE FOLDER 1TIME${NC}"
-    echo -e "${YELLOW}6. Exit${NC}"
+void MSearchDword(int value) {
+	sAddr pmap {0, 0};
+	int c;
+	int buffSize = 0x1000 / ISize;
+	int * buff = new int[buffSize];
+	std::list<sAddr>::iterator pmapsit;
+	for (pmapsit = MapList->begin(); pmapsit != MapList->end(); ++pmapsit) {
+		c = (int)(pmapsit->taddr - pmapsit->addr) / 0x1000;
+		for (int j = 0; j < c; j += 1) {
+			pr(buff, 0x1000, pmapsit->addr, j * 0x1000);
+			for (int i = 0; i < buffSize; i += 1) {
+				if (buff[i] == value) {
+					pmap.addr = pmapsit->addr + (j * 0x1000) + (i * ISize);
+					DataList->push_back(pmap);
+				}
+			}
+		}
+	}
+	delete[] buff;
+}
 
-    echo -n -e "${CYAN}Enter your choice: ${NC}"
-    read choice
+void MSearchQword(mlong value) {
+	sAddr pmap {0, 0};
+	int c;
+	int buffSize = 0x1000 / LSize;
+	auto * buff = new mlong[buffSize];
+	std::list<sAddr>::iterator pmapsit;
+	for (pmapsit = MapList->begin(); pmapsit != MapList->end(); ++pmapsit) {
+		c = (int)(pmapsit->taddr - pmapsit->addr) / 0x1000;
+		for (int j = 0; j < c; j += 1) {
+			pr(buff, 0x1000, pmapsit->addr, j * 0x1000);
+			for (int i = 0; i < buffSize; i += 1) {
+				if (buff[i] == value) {
+					pmap.addr = pmapsit->addr + (j * 0x1000) + (i * LSize);
+					DataList->push_back(pmap);
+				}
+			}
+		}
+	}
+	delete[] buff;
+}
 
-    case $choice in
-        1)
-            if [ "$ISLAND_ON" = true ]; then
-                ISLAND_ON=false
-                echo -e "${RED}ISLAND BYPASS OFF.${NC}"
-                sh /sdcard/BABAMODZ/SH_FILE/OFF.sh
-            else
-                ISLAND_ON=true
-                echo -e "${GREEN}ISLAND BYPASS ON.${NC}"
-                sh /sdcard/BABAMODZ/SH_FILE/ON.sh
-            fi
-            save_toggle_states
-            ;;
-        2)
-            if [ "$PROGRAM_B_ON" = true ]; then
-                PROGRAM_B_ON=false
-                echo -e "${RED} ACTIVATION.${NC}"
-                sh /sdcard/BABAMODZ/SH_FILE/MOD.sh
-            else
-                PROGRAM_B_ON=true
-                echo -e "${GREEN}MODDED OBB.${NC}"
-                sh /sdcard/BABAMODZ/SH_FILE/MOD.sh
-            fi
-            save_toggle_states
-            ;;
-        3)
-            echo -e "${GREEN}Applying Configuration...${NC}"
+void MSearchDouble(double value) {
+	sAddr pmap {0, 0};
+	int c;
+	int buffSize = 0x1000 / DSize;
+	auto * buff = new double[buffSize];
+	std::list<sAddr>::iterator pmapsit;
+	for (pmapsit = MapList->begin(); pmapsit != MapList->end(); ++pmapsit) {
+		c = (int)(pmapsit->taddr - pmapsit->addr) / 0x1000;
+		for (int j = 0; j < c; j += 1) {
+			pr(buff, 0x1000, pmapsit->addr, j * 0x1000);
+			for (int i = 0; i < buffSize; i += 1) {
+				if (buff[i] == value) {
+					pmap.addr = pmapsit->addr + (j * 0x1000) + (i * DSize);
+					DataList->push_back(pmap);
+				}
+			}
+		}
+	}
+	delete[] buff;
+}
 
-            # Display the submenu after applying configuration
-            while true; do
-                display_submenu
-                echo -n -e "${CYAN}Enter your choice: ${NC}"
-                read subchoice
+void MSearchByte(mbyte value) {
+	sAddr pmap {0, 0};
+	int c;
+	int buffSize = 0x1000 / BSize;
+	auto * buff = new mbyte[buffSize];
+	std::list<sAddr>::iterator pmapsit;
+	for (pmapsit = MapList->begin(); pmapsit != MapList->end(); ++pmapsit) {
+		c = (int)(pmapsit->taddr - pmapsit->addr) / 0x1000;
+		for (int j = 0; j < c; j += 1) {
+			pr(buff, 0x1000, pmapsit->addr, j * 0x1000);
+			for (int i = 0; i < buffSize; i += 1) {
+				if (buff[i] == value) {
+					pmap.addr = pmapsit->addr + (j * 0x1000) + (i * BSize);
+					DataList->push_back(pmap);
+				}
+			}
+		}
+	}
+	delete[] buff;
+}
 
-                case $subchoice in
-                    1)
-                        echo "You selected Suboption 1"
-                        # Add your code for Suboption 1 here
-                        ;;
-                    2)
-                        echo "You selected Suboption 2"
-                        # Add your code for Suboption 2 here
-                        ;;
-                    3)
-                        echo "You selected Suboption 3"
-                        # Add your code for Suboption 3 here
-                        ;;
-                    4)
-                        echo "You selected Suboption 4"
-                        # Add your code for Suboption 4 here
-                        ;;
-                    5)
-                        echo "You selected Suboption 5"
-                        # Add your code for Suboption 5 here
-                        ;;
-                    6)
-                        echo "You selected Suboption 6"
-                        # Add your code for Suboption 6 here
-                        ;;
-                    7)
-                        echo "You selected Suboption 7"
-                        # Add your code for Suboption 7 here
-                        ;;
-                    8)
-                        echo "You selected Suboption 8"
-                        # Add your code for Suboption 8 here
-                        ;;
-                    9)
-                        echo "You selected Suboption 9"
-                        # Add your code for Suboption 9 here
-                        ;;
-                    10)
-                        echo "You selected Suboption 10"
-                        # Add your code for Suboption 10 here
-                        ;;
-                    11)
-                        break ;;
-                    *)
-                        echo -e "${RED}Invalid option. Please select a valid option.${NC}"
-                        ;;
-                esac
-            done
-            ;;
-        4)
-            echo -e "${GREEN}Cleaning Logs...${NC}"
-            sh /sdcard/BABAMODZ/SH_FILE/LOGS.sh
-            ;;
-        5)
-            echo -e "${GREEN}Creating Folder and Copying Files...${NC}"
-            ls /storage/emulated/0/Android/data/com.pubg.imobile/files/UE4Game/ShadowTrackerExtra/ShadowTrackerExtra/Saved/Paks/game_patch_3.1.0.185[0-9][0-9].pak | xargs -n 1 basename > /storage/emulated/0/BABAMODZ/file_names.txt
-            source_directory="/storage/emulated/0/BABAMODZ/"
-            destination_directory="/storage/emulated/0/BABAMODZ/FILEPAK/"
-            while IFS= read -r file_name; do
-                mkdir -p "$destination_directory/$file_name"
-            done < "$source_directory/file_names.txt"
-            Paks="/storage/emulated/0/Android/data/com.pubg.imobile/files/UE4Game/ShadowTrackerExtra/ShadowTrackerExtra/Saved/Paks/"
-            cd "$Paks" && sleep 2 && cp game_patch_3.1.0.185[0-9][0-9].pak /storage/emulated/0/BABAMODZ/OGPAK/ && echo -e "${GREEN}Successful ✅${NC}" || echo -e "${RED}Error: Copying files failed.${NC}"
-            ;;
-        6)
-            echo -e "${RED}Exiting...${NC}"; break
-            ;;
-        *)
-            echo -e "${RED}Invalid option. Please select a valid option.${NC}"
-            ;;
-    esac
-done
+void MOffset(const mbyte * value, long offset, int type, int len) {
+	mbyte buf[len];
+	auto pmapsit = DataList->begin();
+	while (pmapsit != DataList->end()) {
+		pr(buf, len, pmapsit->addr, (int) offset);
+		bool isMatch = false;
+		if (type == MEM_DWORD) {
+			int buf_val = * (int *) buf;
+			int val = * (int *) value;
+			if (buf_val == val) {
+				isMatch = true;
+			}
+		} else if (type == MEM_QWORD) {
+			mlong buf_val = * (mlong *) buf;
+			mlong val = * (mlong *) value;
+			if (buf_val == val) {
+				isMatch = true;
+			}
+		} else if (type == MEM_FLOAT) {
+			float buf_val = * (float *) buf;
+			float val = * (float *) value;
+			if (buf_val == val) {
+				isMatch = true;
+			}
+		} else if (type == MEM_DOUBLE) {
+			double buf_val = * (double *) buf;
+			double val = * (double *) value;
+			if (buf_val == val) {
+				isMatch = true;
+			}
+		} else if (type == MEM_BYTE) {
+			mbyte buf_val = * buf;
+			mbyte val = * value;
+			if (buf_val == val) {
+				isMatch = true;
+			}
+		}
+		if (isMatch) {
+			++pmapsit;
+		} else {
+			pmapsit = DataList->erase(pmapsit);
+		}
+	}
+}
+
+void readmaps_all() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp)) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_bad() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "kgsl-3d0")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_c_alloc() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "[anon:libc_malloc]")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_c_bss() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "[anon:.bss]")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_c_data() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "/data/app/")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+
+	fclose(fp);
+}
+
+void readmaps_c_heap() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "[heap]")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_java_heap() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "anon:dalvik-main")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_a_anonmyous() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && (strlen(buff) < 46)) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_code_system() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	int i = 0, flag = 1;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "/system")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_stack() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "[stack]")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_ashmem() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "/dev/ashmem/") && !strstr(buff, "dalvik")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_code_app() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "r-xp") != nullptr && !feof(fp) && strstr(buff, "/data/app/")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_v_video() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "/dev/kgsl-3d0")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void readmaps_other() {
+	sAddr pmaps {0, 0};
+	FILE * fp;
+	char lj[64], buff[256];
+	sprintf(lj, "/proc/%d/maps", GAME_PID);
+	fp = fopen(lj, "r");
+	if (fp == nullptr) {
+		return;
+	}
+	while (!feof(fp)) {
+		fgets(buff, sizeof(buff), fp);
+		if (strstr(buff, "rw") != nullptr && !feof(fp) && strstr(buff, "[anon:thread signal stack]")) {
+			sscanf(buff, "%lx-%lx", & pmaps.addr, & pmaps.taddr);
+			MapList->push_back(pmaps);
+		}
+	}
+	fclose(fp);
+}
+
+void MemTool::initMemTool() {
+	GAME_PID = getpid();
+	page_size = sysconf(_SC_PAGESIZE);
+}
+
+void MemTool::SetSearchRange(Range range) {
+	ClearMap();
+	switch (range) {
+	case ALL:
+		readmaps_all();
+		break;
+	case B_BAD:
+		readmaps_bad();
+		break;
+	case C_ALLOC:
+		readmaps_c_alloc();
+		break;
+	case C_BSS:
+		readmaps_c_bss();
+		break;
+	case C_DATA:
+		readmaps_c_data();
+		break;
+	case C_HEAP:
+		readmaps_c_heap();
+		break;
+	case JAVA_HEAP:
+		readmaps_java_heap();
+		break;
+	case A_ANONMYOUS:
+		readmaps_a_anonmyous();
+		break;
+	case CODE_SYSTEM:
+		readmaps_code_system();
+		break;
+	case STACK:
+		readmaps_stack();
+		break;
+	case ASHMEM:
+		readmaps_ashmem();
+		break;
+	case CODE_APP:
+		readmaps_code_app();
+		break;
+	case V_VIDEO:
+		readmaps_v_video();
+		break;
+	case OTHER:
+		readmaps_other();
+	}
+}
+
+void MemTool::MemorySearch(const char * value, Type type) {
+	ClearResults();
+	if (MapList->empty()) {
+		return;
+	}
+	switch (type) {
+	case MEM_DWORD: {
+		int val = atoi(value);
+		MSearchDword(val);
+	}
+	break;
+	case MEM_QWORD: {
+		mlong val = atoll(value);
+		MSearchQword(val);
+	}
+	break;
+	case MEM_FLOAT: {
+		float val = atof(value);
+		MSearchFloat(val);
+	}
+	break;
+	case MEM_DOUBLE: {
+		double val = atof(value);
+		MSearchDouble(val);
+	}
+	break;
+	case MEM_BYTE: {
+		mbyte val = atoi(value);
+		MSearchByte(val);
+	}
+	break;
+	}
+}
+
+void MemTool::MemoryOffset(const char * value, long int offset, Type type) {
+	mbyte * buff = nullptr;
+	switch (type) {
+	case MEM_DWORD: {
+		int val = atoi(value);
+		buff = new mbyte[ISize];
+		memcpy(buff, & val, ISize);
+		MOffset(buff, offset, type, ISize);
+	}
+	break;
+	case MEM_QWORD: {
+		mlong val = atoll(value);
+		buff = new mbyte[LSize];
+		memcpy(buff, & val, LSize);
+		MOffset(buff, offset, type, LSize);
+	}
+	break;
+	case MEM_FLOAT: {
+		float val = atof(value);
+		buff = new mbyte[FSize];
+		memcpy(buff, & val, FSize);
+		MOffset(buff, offset, type, FSize);
+	}
+	break;
+	case MEM_DOUBLE: {
+		double val = atof(value);
+		buff = new mbyte[DSize];
+		memcpy(buff, & val, DSize);
+		MOffset(buff, offset, type, DSize);
+	}
+	break;
+	case MEM_BYTE: {
+		mbyte val = atoi(value);
+		buff = new mbyte[BSize];
+		memcpy(buff, & val, BSize);
+		MOffset(buff, offset, type, BSize);
+	}
+	break;
+	}
+	delete[] buff;
+}
+
+void MemTool::MemoryWrite(const char * value, long int offset, Type type) {
+	mbyte * buff;
+	int len = 0;
+	switch (type) {
+	case MEM_DWORD: {
+		int val = atoi(value);
+		buff = new mbyte[ISize];
+		memcpy(buff, & val, ISize);
+		len = ISize;
+	}
+	break;
+	case MEM_QWORD: {
+		mlong val = atoll(value);
+		buff = new mbyte[LSize];
+		memcpy(buff, & val, LSize);
+		len = LSize;
+	}
+	break;
+	case MEM_FLOAT: {
+		float val = atof(value);
+		buff = new mbyte[FSize];
+		memcpy(buff, & val, FSize);
+		len = FSize;
+	}
+	break;
+	case MEM_DOUBLE: {
+		double val = atof(value);
+		buff = new mbyte[DSize];
+		memcpy(buff, & val, DSize);
+		len = DSize;
+	}
+	break;
+	case MEM_BYTE: {
+		mbyte val = atoi(value);
+		buff = new mbyte[BSize];
+		memcpy(buff, & val, BSize);
+		len = BSize;
+	}
+	break;
+	}
+	std::list<sAddr>::iterator pmapsit;
+	for (pmapsit = DataList->begin(); pmapsit != DataList->end(); ++pmapsit) {
+		pw(buff, len, pmapsit->addr, offset);
+	}
+}
+
+void MemTool::ClearResults() {
+	DataList->clear();
+}
+
+void MemTool::ClearMap() {
+	MapList->clear();
+}
